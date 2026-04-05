@@ -15,6 +15,8 @@ import os
 from sklearn.ensemble import RandomForestClassifier, RandomForestRegressor
 import sys
 from tqdm import tqdm
+from xgboost import XGBClassifier
+
 
 from helper_code import *
 
@@ -79,14 +81,14 @@ def train_model(data_folder, model_folder, verbose, csv_path=DEFAULT_CSV_PATH):
             # Load signal data.
 
             # Load the physiological signal.
-            physiological_data_file = os.path.join(data_folder, PHYSIOLOGICAL_DATA_SUBFOLDER, site_id, f"{patient_id}_ses-{session_id}.edf")
-            # --- Check if the file actually exists before proceeding ---
-            if not os.path.exists(physiological_data_file):
-                if verbose:
-                    print(f"  ! Missing physiological data for {patient_id}. Skipping...")
-                continue # skip record
-            physiological_data, physiological_fs = load_signal_data(physiological_data_file)
-            physiological_features = extract_physiological_features(physiological_data, physiological_fs, csv_path=csv_path) # This function can rename, re-reference, resample, etc. the signal data.
+            # physiological_data_file = os.path.join(data_folder, PHYSIOLOGICAL_DATA_SUBFOLDER, site_id, f"{patient_id}_ses-{session_id}.edf")
+            # # --- Check if the file actually exists before proceeding ---
+            # if not os.path.exists(physiological_data_file):
+            #     if verbose:
+            #         print(f"  ! Missing physiological data for {patient_id}. Skipping...")
+            #     continue # skip record
+            # physiological_data, physiological_fs = load_signal_data(physiological_data_file)
+            # physiological_features = extract_physiological_features(physiological_data, physiological_fs, csv_path=csv_path) # This function can rename, re-reference, resample, etc. the signal data.
 
             # Load the algorithmic annotations.
             algorithmic_annotations_file = os.path.join(data_folder, ALGORITHMIC_ANNOTATIONS_SUBFOLDER, site_id, f"{patient_id}_ses-{session_id}_caisr_annotations.edf")
@@ -94,9 +96,9 @@ def train_model(data_folder, model_folder, verbose, csv_path=DEFAULT_CSV_PATH):
             algorithmic_features = extract_algorithmic_annotations_features(algorithmic_annotations)
 
             # Load the human annotations; these data will not be available in the hidden validation and test sets.
-            human_annotations_file = os.path.join(data_folder, HUMAN_ANNOTATIONS_SUBFOLDER, site_id, f"{patient_id}_ses-{session_id}_expert_annotations.edf")
-            human_annotations, human_fs = load_signal_data(human_annotations_file)
-            human_features = extract_human_annotations_features(human_annotations)
+            # human_annotations_file = os.path.join(data_folder, HUMAN_ANNOTATIONS_SUBFOLDER, site_id, f"{patient_id}_ses-{session_id}_expert_annotations.edf")
+            # human_annotations, human_fs = load_signal_data(human_annotations_file)
+            # human_features = extract_human_annotations_features(human_annotations)
 
             # Load the diagnoses; these data will not be available in the hidden validation and test sets.
             diagnosis_file = os.path.join(data_folder, DEMOGRAPHICS_FILE)
@@ -106,11 +108,11 @@ def train_model(data_folder, model_folder, verbose, csv_path=DEFAULT_CSV_PATH):
             # the human annotations are not available on the hidden validation and test sets, but you
             # may want to consider how to use them for training.
             if label == 0 or label == 1:
-                features.append(np.hstack([demographic_features, physiological_features, algorithmic_features]))
+                features.append(np.hstack([demographic_features, algorithmic_features]))
                 labels.append(label)
 
-            if 'physiological_data' in locals(): del physiological_data
-            if 'algorithmic_annotations' in locals(): del algorithmic_annotations
+            # if 'physiological_data' in locals(): del physiological_data
+            # if 'algorithmic_annotations' in locals(): del algorithmic_annotations
 
         except Exception as e:
             # If an error occurs (e.g., a record is corrupted), log it and move to the next
@@ -121,7 +123,7 @@ def train_model(data_folder, model_folder, verbose, csv_path=DEFAULT_CSV_PATH):
 
     features = np.asarray(features, dtype=np.float32)
     labels = np.asarray(labels, dtype=bool)
-
+    
     # Train the models on the features.
     if verbose:
         print('Training the model on the data...')
@@ -134,9 +136,17 @@ def train_model(data_folder, model_folder, verbose, csv_path=DEFAULT_CSV_PATH):
     random_state = 56  # Random state; set for reproducibility.
 
     # Fit the model.
-    model = RandomForestClassifier(
-        n_estimators=n_estimators, max_leaf_nodes=max_leaf_nodes, random_state=random_state).fit(features, labels)
+    # model = RandomForestClassifier(
+    #     n_estimators=n_estimators, max_leaf_nodes=max_leaf_nodes, random_state=random_state).fit(features, labels)
 
+    params = {
+    'objective': 'binary:logistic',
+    'max_depth': 3,
+    'random_state': 369
+}
+    
+    model = XGBClassifier(**params)
+    model.fit(features, labels)
     # Create a folder for the model if it does not already exist.
     os.makedirs(model_folder, exist_ok=True)
 
@@ -170,15 +180,15 @@ def run_model(model, record, data_folder, verbose):
     patient_data = load_demographics(patient_data_file, patient_id, session_id)
     demographic_features = extract_demographic_features(patient_data)
 
-    # Load signal data.
-    phys_file = os.path.join(data_folder, PHYSIOLOGICAL_DATA_SUBFOLDER, site_id, f"{patient_id}_ses-{session_id}.edf")
-    if os.path.exists(phys_file):
-        phys_data, phys_fs = load_signal_data(phys_file)
-        # Ensure csv_path is accessible or defined
-        physiological_features = extract_physiological_features(phys_data, phys_fs)
-    else:
-        # Fallback to zeros if file is missing (length 49)
-        physiological_features = np.zeros(49)
+    # # Load signal data.
+    # phys_file = os.path.join(data_folder, PHYSIOLOGICAL_DATA_SUBFOLDER, site_id, f"{patient_id}_ses-{session_id}.edf")
+    # if os.path.exists(phys_file):
+    #     phys_data, phys_fs = load_signal_data(phys_file)
+    #     # Ensure csv_path is accessible or defined
+    #     physiological_features = extract_physiological_features(phys_data, phys_fs)
+    # else:
+    #     # Fallback to zeros if file is missing (length 49)
+    #     physiological_features = np.zeros(49)
 
     # Load Algorithmic Annotations
     algo_file = os.path.join(data_folder, ALGORITHMIC_ANNOTATIONS_SUBFOLDER, site_id, f"{patient_id}_ses-{session_id}_caisr_annotations.edf")
@@ -187,9 +197,9 @@ def run_model(model, record, data_folder, verbose):
         algorithmic_features = extract_algorithmic_annotations_features(algo_data)
     else:
         # Fallback to zeros (length 12)
-        algorithmic_features = np.zeros(12)
+        algorithmic_features = np.full(25, np.nan)
 
-    features = np.hstack([demographic_features, physiological_features, algorithmic_features]).reshape(1, -1)
+    features = np.hstack([demographic_features, algorithmic_features]).reshape(1, -1)
 
     # Get the model outputs.
     binary_output = model.predict(features)[0]
@@ -247,7 +257,6 @@ def extract_demographic_features(data):
     # 5. Concatenate all components into a single vector (1 + 3 + 5 + 1 = 10)
     
     return np.concatenate([age, sex_vec, race_vec, bmi])
-
 
 def extract_physiological_features(physiological_data, physiological_fs, csv_path=DEFAULT_CSV_PATH):
     """
@@ -405,80 +414,93 @@ def extract_algorithmic_annotations_features(algo_data):
     Extracts sleep architecture and event density features from CAISR outputs.
     Output vector length: 12
     """
+    
+    out = np.full(25, np.nan)
+    
     if not algo_data:
-        return np.zeros(12)
+        return out
 
-    features = []
-
-    # --- 1. Respiratory & Arousal Event Densities ---
-    # Total duration in hours (assuming 1Hz for event traces)
-    # If the signal exists, we calculate events per hour (Index)
-    total_hours = len(algo_data.get('resp_caisr', [])) / 3600.0
-    
-    def count_discrete_events(key):
-        if key not in algo_data or total_hours <= 0:
-            return 0.0
-        
-        sig = algo_data[key].astype(float)
-        # Create a binary mask: 1 if there is an event, 0 if not
-        binary_sig = (sig > 0).astype(int)
-        
-        # Detect rising edges: 0 to 1 transition
-        # diff will be 1 at the start of an event, -1 at the end
-        diff = np.diff(binary_sig, prepend=0)
-        num_events = np.count_nonzero(diff == 1)
-        
-        return num_events / total_hours
-    
-    ahi_auto = count_discrete_events('resp_caisr')      # Automated Apnea-Hypopnea Index
-    arousal_auto = count_discrete_events('arousal_caisr') # Automated Arousal Index
-    limb_auto = count_discrete_events('limb_caisr')    # Automated Limb Movement Index
-    
-    features.extend([ahi_auto, arousal_auto, limb_auto])
-
-    # --- 2. Sleep Architecture (from stage_caisr) ---
-    # Standard labels: 5=W, 4=R, 3=N1, 2=N2, 1=N3 (or similar mapping)
+    # --- 1. Sleep Architecture (Indices 0-6) ---
     stages = algo_data.get('stage_caisr', np.array([]))
-    # Filter out invalid/background values (like the 9.0 in your sample)
-    valid_stages = stages[stages < 9.0]
+    valid_stages = stages[stages != 9.0]
     
     if len(valid_stages) > 0:
+        sleep_mask = (valid_stages >= 1) & (valid_stages <= 4)
+        sleep_hours = np.sum(sleep_mask) * 30.0 / 3600.0
         total_epochs = len(valid_stages)
-        # Percentage of each stage
-        w_pct = np.mean(valid_stages == 5)
-        r_pct = np.mean(valid_stages == 4)
-        n1_pct = np.mean(valid_stages == 3)
-        n2_pct = np.mean(valid_stages == 2)
-        n3_pct = np.mean(valid_stages == 1)
         
-        # Sleep Efficiency: (N1+N2+N3+R) / Total
-        efficiency = np.mean((valid_stages >= 1) & (valid_stages <= 4))
+        out[0] = np.sum(valid_stages == 5) / total_epochs # Wake %
+        out[1] = np.sum(valid_stages == 3) / total_epochs # N1 %
+        out[2] = np.sum(valid_stages == 2) / total_epochs # N2 %
+        out[3] = np.sum(valid_stages == 1) / total_epochs # N3 %
+        out[4] = np.sum(valid_stages == 4) / total_epochs # REM %
+        out[5] = np.sum(sleep_mask) / total_epochs        # Efficiency
+        
+        # Transitions
+        if sleep_hours > 0:
+            out[6] = np.count_nonzero(np.diff(valid_stages) != 0) / sleep_hours
     else:
-        w_pct = n1_pct = n2_pct = n3_pct = r_pct = efficiency = 0.0
+        sleep_hours = 0
 
-    features.extend([w_pct, n1_pct, n2_pct, n3_pct, r_pct, efficiency])
+    # --- 2. Event Stats Helper ---
+    def get_event_metrics(key, res):
+        sig = algo_data.get(key, np.array([]))
+        if len(sig) == 0 or sleep_hours <= 0:
+            return np.nan, np.nan, np.nan
+        
+        binary = (sig > 0).astype(int)
+        diff = np.diff(binary, prepend=0)
+        starts = np.where(diff == 1)[0]
+        ends = np.where(diff == -1)[0]
+        if len(starts) > len(ends): ends = np.append(ends, len(sig))
+        
+        durs = (ends - starts) * res
+        max_val = np.max(durs) if len(durs) > 0 else 0.0
+        
+        return len(starts)/sleep_hours, np.sum(durs)/(sleep_hours*3600), max_val
 
-    # --- 3. Model Confidence / Uncertainty ---
-    # Mean probability of Wake and REM (indicators of sleep stability)
-    # We use the raw probability traces
-    prob_w = np.mean(algo_data.get('caisr_prob_w', [0]))
-    prob_n3 = np.mean(algo_data.get('caisr_prob_n3', [0]))
-    prob_arous = np.mean(algo_data.get('caisr_prob_arous', [0]))
-    
-    # Standardize '9.0' or other filler values to 0
-    clean_prob = lambda x: x if x < 1.0 else 0.0
-    features.extend([clean_prob(prob_w), clean_prob(prob_n3), clean_prob(prob_arous)])
+    # Indices 7-9: Resp, 10-12: Arousal, 13-15: Limb
+    out[7],  out[8],  out[9]  = get_event_metrics('resp_caisr', 1.0)
+    out[10], out[11], out[12] = get_event_metrics('arousal_caisr', 0.5)
+    out[13], out[14], out[15] = get_event_metrics('limb_caisr', 1.0)
 
-    return np.array(features)
+    # --- 3. Sub-Types (Indices 16-17) ---
+    resp_sig = algo_data.get('resp_caisr', np.array([]))
+    if len(resp_sig) > 0 and sleep_hours > 0:
+        out[16] = np.count_nonzero(np.diff((resp_sig == 2).astype(int), prepend=0) == 1) / sleep_hours # Central
+        out[17] = np.count_nonzero(np.diff((resp_sig == 4).astype(int), prepend=0) == 1) / sleep_hours # Hypopnea
+
+    # --- 4. REM AHI (Index 18) ---
+    if len(resp_sig) > 0 and len(stages) > 0 and sleep_hours > 0:
+        stages_1hz = np.repeat(stages, 30)
+        m_len = min(len(resp_sig), len(stages_1hz))
+        rem_apneas = (resp_sig[:m_len] > 0) & (stages_1hz[:m_len] == 4)
+        rem_hours = np.sum(stages == 4) * 30.0 / 3600.0
+        if rem_hours > 0:
+            out[18] = np.count_nonzero(np.diff(rem_apneas.astype(int), prepend=0) == 1) / rem_hours
+
+    # --- 5. Uncertainty/Entropy (Indices 19-21) ---
+    for i, key in enumerate(['caisr_prob_w', 'caisr_prob_n3', 'caisr_prob_arousal']):
+        p = algo_data.get(key, [])
+        if len(p) > 0:
+            out[19+i] = np.std(p)
+
+    # --- 6. Extra Metadata (Indices 22-24) ---
+    # Good for the model to know if signals were actually present
+    out[22] = 1.0 if 'resp_caisr' in algo_data else 0.0
+    out[23] = 1.0 if 'arousal_caisr' in algo_data else 0.0
+    out[24] = 1.0 if 'stage_caisr' in algo_data else 0.0
+
+    return out
 
 def extract_human_annotations_features(human_data):
     """
     Extracts features from expert-scored human annotations.
     Output vector length: 12 (to match algorithmic feature length)
     """
-    # If data is missing (common in hidden test sets), return a zero vector
+    # If data is missing (common in hidden test sets), return a none vector (not 0's because this may indicate person of 0 sleep)
     if not human_data or 'resp_expert' not in human_data:
-        return np.zeros(12)
+        return np.full(12, np.nan)
 
     features = []
 
@@ -489,7 +511,7 @@ def extract_human_annotations_features(human_data):
     
     def count_discrete_events(key):
         if key not in human_data or total_hours <= 0:
-            return 0.0
+            return np.nan
         sig = (human_data[key] > 0).astype(int)
         # Identify the start of each continuous event block
         diff = np.diff(sig, prepend=0)
@@ -517,7 +539,7 @@ def extract_human_annotations_features(human_data):
         n3_pct = np.mean(valid_stages == 1)
         efficiency = np.mean(valid_stages > 0)
     else:
-        w_pct = n1_pct = n2_pct = n3_pct = r_pct = efficiency = 0.0
+        w_pct = n1_pct = n2_pct = n3_pct = r_pct = efficiency = np.nan
 
     features.extend([w_pct, n1_pct, n2_pct, n3_pct, r_pct, efficiency])
 
@@ -530,9 +552,9 @@ def extract_human_annotations_features(human_data):
         waso_minutes = (np.count_nonzero(valid_stages == 0) * 30) / 60.0
         # REM Latency (epochs until first REM)
         rem_indices = np.where(valid_stages == 4)[0]
-        rem_latency = rem_indices[0] if len(rem_indices) > 0 else 0.0
+        rem_latency = rem_indices[0] if len(rem_indices) > 0 else np.nan
     else:
-        transitions = waso_minutes = rem_latency = 0.0
+        transitions = waso_minutes = rem_latency = np.nan
 
     features.extend([transitions, waso_minutes, rem_latency])
 
